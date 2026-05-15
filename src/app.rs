@@ -40,9 +40,11 @@ pub struct BatchRenameApp {
     files: Vec<String>,
     file_match_results: Vec<(String, Option<usize>, Vec<(String, String)>)>,
     matched_column: Option<usize>,
+    selected_match_column: Option<usize>,
 
     // ── Step 2: 模板 ──
     template_parts: Vec<TemplatePart>,
+    selected_template_idx: Option<usize>,
     seq_enabled: bool,
     seq_start: u32,
     seq_digits: u32,
@@ -58,6 +60,9 @@ pub struct BatchRenameApp {
     status_message: String,
     result_summary: String,
     output_excel_path: Option<String>,
+
+    // ── 匹配确认 ──
+    match_confirmed: bool,
 
     // ── 临时 ──
     show_variable_panel: bool,
@@ -75,7 +80,9 @@ impl Default for BatchRenameApp {
             files: Vec::new(),
             file_match_results: Vec::new(),
             matched_column: None,
+            selected_match_column: None,
             template_parts: Vec::new(),
+            selected_template_idx: None,
             seq_enabled: false,
             seq_start: 1,
             seq_digits: 3,
@@ -87,6 +94,7 @@ impl Default for BatchRenameApp {
             status_message: "准备就绪，请先导入数据源".to_string(),
             result_summary: String::new(),
             output_excel_path: None,
+            match_confirmed: false,
             show_variable_panel: true,
             variable_to_add: None,
         }
@@ -190,7 +198,13 @@ impl BatchRenameApp {
 
         if ui.add_enabled(can_go, btn).clicked() && can_go {
             self.current_step = step;
+            if step == 1 && !self.files.is_empty() && self.selected_match_column.is_none() {
+                self.auto_detect_match_column();
+            }
             if step == 2 {
+                if self.selected_match_column.is_none() {
+                    self.auto_detect_match_column();
+                }
                 self.run_matching();
                 self.update_preview();
             }
@@ -258,6 +272,22 @@ impl BatchRenameApp {
                     }
                 }
             }
+        }
+    }
+
+    /// 自动检测最佳匹配列，并设置为用户选择的默认值
+    fn auto_detect_match_column(&mut self) {
+        if self.data_rows.is_empty() || self.files.is_empty() {
+            return;
+        }
+        let best = matcher::find_best_column(
+            &self.files,
+            &self.data_headers,
+            &self.data_rows,
+        );
+        self.matched_column = best;
+        if self.selected_match_column.is_none() {
+            self.selected_match_column = best;
         }
     }
 }
@@ -389,8 +419,11 @@ impl BatchRenameApp {
         self.files.clear();
         self.file_match_results.clear();
         self.matched_column = None;
+        self.selected_match_column = None;
         self.template_parts.clear();
+        self.selected_template_idx = None;
         self.preview_items.clear();
+        self.match_confirmed = false;
         self.output_excel_path = None;
         self.result_summary.clear();
         self.status_message = "准备就绪，请先导入数据源".to_string();
@@ -439,6 +472,7 @@ impl BatchRenameApp {
                             self.files.clear();
                             self.file_match_results.clear();
                             self.matched_column = None;
+                            self.selected_match_column = None;
                             self.preview_items.clear();
                             self.status_message = "已清空文件列表".to_string();
                         }
@@ -528,13 +562,100 @@ impl BatchRenameApp {
                         self.files.remove(idx);
                         self.file_match_results.clear();
                         self.matched_column = None;
+                        self.selected_match_column = None;
+                        self.match_confirmed = false;
                     }
                 });
 
             ui.add_space(8.0);
+
+            // ── 匹配列确认（智能匹配后让用户确认/选择） ──
+            // 自动检测最佳匹配列（尚未检测时）
+            if self.selected_match_column.is_none() {
+                self.auto_detect_match_column();
+                self.match_confirmed = false;
+            }
+            // 首次时自动跑匹配
+            if self.file_match_results.is_empty() && self.selected_match_column.is_some() {
+                self.run_matching();
+                self.update_preview();
+            }
+
+            egui::Frame::group(ui.style())
+                .fill(COLOR_BG_CARD)
+                .show(ui, |ui| {
+                    ui.horizontal(|ui| {
+                        ui.label("🔗 匹配列：");
+
+                        let current_col = self.selected_match_column
+                            .and_then(|c| self.data_headers.get(c))
+                            .cloned()
+                            .unwrap_or_else(|| {
+                                self.matched_column
+                                    .and_then(|c| self.data_headers.get(c))
+                                    .cloned()
+                                    .unwrap_or_else(|| "(自动检测)".to_string())
+                            });
+
+                        let headers = self.data_headers.clone();
+                        egui::ComboBox::from_id_salt("match_col_selector")
+                            .selected_text(&current_col)
+                            .show_ui(ui, |ui| {
+                                // 全部数据列供选择
+                                for (idx, header) in headers.iter().enumerate() {
+                                    let is_selected = self.selected_match_column == Some(idx);
+                                    if ui.selectable_label(is_selected, header).clicked() {
+                                        self.selected_match_column = Some(idx);
+                                        self.matched_column = Some(idx);
+                                        self.match_confirmed = false;
+                                        self.run_matching();
+                                    }
+                                }
+                            });
+
+                        ui.separator();
+                        ui.add_space(4.0);
+
+                        // 匹配统计
+                        if !self.file_match_results.is_empty() {
+                            let total = self.file_match_results.len();
+                            let matched = self.file_match_results.iter().filter(|r| r.1.is_some()).count();
+                            let pct = if total > 0 { matched as f64 / total as f64 * 100.0 } else { 0.0 };
+                            let color = if matched == total { COLOR_SUCCESS } else { COLOR_WARNING };
+                            ui.colored_label(color, format!("匹配: {}/{} ({:.0}%)", matched, total, pct));
+                        }
+
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            if self.match_confirmed {
+                                ui.colored_label(COLOR_SUCCESS, "✅ 已确认");
+                            } else {
+                                if ui.button("确认匹配").clicked() {
+                                    self.match_confirmed = true;
+                                    self.run_matching();
+                                    self.update_preview();
+                                    self.status_message = format!(
+                                        "已确认匹配列: {}",
+                                        self.selected_match_column
+                                            .and_then(|c| self.data_headers.get(c))
+                                            .map(|s| s.as_str())
+                                            .unwrap_or("?")
+                                    );
+                                }
+                            }
+                        });
+                    });
+                });
+
+            ui.add_space(8.0);
+            let can_next = self.match_confirmed && !self.file_match_results.is_empty();
             if ui
-                .add(egui::Button::new("下一步 → 重命名规则").fill(COLOR_PRIMARY))
+                .add_enabled(
+                    can_next,
+                    egui::Button::new("下一步 → 重命名规则")
+                        .fill(if can_next { COLOR_PRIMARY } else { egui::Color32::GRAY }),
+                )
                 .clicked()
+                && can_next
             {
                 self.run_matching();
                 self.current_step = 2;
@@ -554,14 +675,19 @@ impl BatchRenameApp {
             return;
         }
 
-        // 找最佳匹配列
-        self.matched_column = matcher::find_best_column(
-            &self.files,
-            &self.data_headers,
-            &self.data_rows,
-        );
+        // 如果用户没有手动选择列，自动检测
+        if self.selected_match_column.is_none() {
+            self.matched_column = matcher::find_best_column(
+                &self.files,
+                &self.data_headers,
+                &self.data_rows,
+            );
+            self.selected_match_column = self.matched_column;
+        } else {
+            self.matched_column = self.selected_match_column;
+        }
 
-        let col = match self.matched_column {
+        let col = match self.selected_match_column {
             Some(c) => c,
             None => {
                 self.file_match_results = self
@@ -622,14 +748,7 @@ impl BatchRenameApp {
                     }
                 });
                 ui.label("  ");
-                if ui.button("📅 时间戳").clicked() {
-                    self.template_parts.push(TemplatePart::Timestamp);
-                    self.update_preview();
-                }
-                if ui.button("# 序号").clicked() {
-                    self.template_parts.push(TemplatePart::Sequence);
-                    self.update_preview();
-                }
+                ui.label("提示：序号和时间戳通过下方复选框启用，会自动添加到模板结尾");
             });
 
         ui.add_space(8.0);
@@ -715,7 +834,20 @@ impl BatchRenameApp {
             .show(ui, |ui| {
                 ui.horizontal(|ui| {
                     // 序号配置
+                    let prev_seq = self.seq_enabled;
                     ui.checkbox(&mut self.seq_enabled, "🔢 序号");
+                    if self.seq_enabled != prev_seq {
+                        if self.seq_enabled {
+                            // 自动添加到模板（如果还没加）
+                            if !self.template_parts.iter().any(|p| matches!(p, TemplatePart::Sequence)) {
+                                self.template_parts.push(TemplatePart::Sequence);
+                            }
+                        } else {
+                            // 从模板移除
+                            self.template_parts.retain(|p| !matches!(p, TemplatePart::Sequence));
+                        }
+                        self.update_preview();
+                    }
                     if self.seq_enabled {
                         ui.add(
                             egui::DragValue::new(&mut self.seq_start)
@@ -732,7 +864,18 @@ impl BatchRenameApp {
                     ui.separator();
 
                     // 时间戳配置
+                    let prev_time = self.time_enabled;
                     ui.checkbox(&mut self.time_enabled, "📅 时间戳");
+                    if self.time_enabled != prev_time {
+                        if self.time_enabled {
+                            if !self.template_parts.iter().any(|p| matches!(p, TemplatePart::Timestamp)) {
+                                self.template_parts.push(TemplatePart::Timestamp);
+                            }
+                        } else {
+                            self.template_parts.retain(|p| !matches!(p, TemplatePart::Timestamp));
+                        }
+                        self.update_preview();
+                    }
                     if self.time_enabled {
                         let formats = [
                             "YYYYMMDD",
@@ -846,7 +989,6 @@ impl BatchRenameApp {
         self.preview_items.clear();
 
         if self.template_parts.is_empty() {
-            // 即使没有模板，也显示文件列表
             for fname in &self.files {
                 let _name = Path::new(fname)
                     .file_name()
@@ -859,11 +1001,7 @@ impl BatchRenameApp {
             return;
         }
 
-        let timestamp = if self.time_enabled {
-            Some(format_timestamp(&self.time_format))
-        } else {
-            None
-        };
+        let mut seq_num = self.seq_start;
 
         for (fname, matched_row, row_data) in &self.file_match_results {
             let matched = matched_row.is_some();
@@ -873,10 +1011,24 @@ impl BatchRenameApp {
                     data_map.insert(k.clone(), v.clone());
                 }
 
+                let timestamp = if self.time_enabled {
+                    Some(format_timestamp(&self.time_format, Some(fname.as_str())))
+                } else {
+                    None
+                };
+
+                let seq = if self.seq_enabled {
+                    let n = seq_num;
+                    seq_num += 1;
+                    Some(n)
+                } else {
+                    None
+                };
+
                 let new_name = renamer::build_new_name(
                     &data_map,
                     &self.template_parts,
-                    None, // seq 在预览时不带序号
+                    seq,
                     self.seq_digits,
                     timestamp.as_deref(),
                 );
@@ -895,11 +1047,9 @@ impl BatchRenameApp {
     }
 
     fn execute_rename(&mut self) {
-        let timestamp = if self.time_enabled {
-            Some(format_timestamp(&self.time_format))
-        } else {
-            None
-        };
+        if self.files.is_empty() || self.template_parts.is_empty() {
+            return;
+        }
 
         let mut seq_num = self.seq_start;
         let mut rename_inputs = Vec::new();
@@ -917,6 +1067,12 @@ impl BatchRenameApp {
             for (k, v) in row_data {
                 data_map.insert(k.clone(), v.clone());
             }
+
+            let timestamp = if self.time_enabled {
+                Some(format_timestamp(&self.time_format, Some(fname.as_str())))
+            } else {
+                None
+            };
 
             let seq = if self.seq_enabled {
                 let n = seq_num;
@@ -986,15 +1142,24 @@ impl BatchRenameApp {
 
 // ─── 工具函数 ─────────────────────────────────────────────
 
-fn format_timestamp(fmt: &str) -> String {
-    use chrono::Local;
-    let now = Local::now();
+fn format_timestamp(fmt: &str, file_path: Option<&str>) -> String {
+    use chrono::{DateTime, Local};
+    let dt: DateTime<Local> = if let Some(path) = file_path {
+        // 使用文件最后修改时间
+        std::fs::metadata(path)
+            .ok()
+            .and_then(|m| m.modified().ok())
+            .map(|t| t.into())
+            .unwrap_or_else(Local::now)
+    } else {
+        Local::now()
+    };
     match fmt {
-        "YYYYMMDD" => now.format("%Y%m%d").to_string(),
-        "YYYY-MM-DD" => now.format("%Y-%m-%d").to_string(),
-        "YYYYMMDD_HHMMSS" => now.format("%Y%m%d_%H%M%S").to_string(),
-        "YYYY-MM-DD_HH-MM-SS" => now.format("%Y-%m-%d_%H-%M-%S").to_string(),
-        "YYMMDD" => now.format("%y%m%d").to_string(),
-        _ => now.format("%Y%m%d").to_string(),
+        "YYYYMMDD" => dt.format("%Y%m%d").to_string(),
+        "YYYY-MM-DD" => dt.format("%Y-%m-%d").to_string(),
+        "YYYYMMDD_HHMMSS" => dt.format("%Y%m%d_%H%M%S").to_string(),
+        "YYYY-MM-DD_HH-MM-SS" => dt.format("%Y-%m-%d_%H-%M-%S").to_string(),
+        "YYMMDD" => dt.format("%y%m%d").to_string(),
+        _ => dt.format("%Y%m%d").to_string(),
     }
 }
