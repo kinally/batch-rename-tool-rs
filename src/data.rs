@@ -2,7 +2,7 @@
 ///
 /// 支持 .xlsx / .xls / .csv 格式的读取
 
-use calamine::{open_workbook, Reader, Xlsx, DataType};
+use calamine::{open_workbook, Reader, Xlsx, Data};
 use std::path::Path;
 
 /// 加载 Excel/CSV 文件，返回 (表头列表, 数据行列表)
@@ -39,8 +39,8 @@ fn load_excel(path: &str) -> Result<(Vec<String>, Vec<Vec<String>>), String> {
         let row_data: Vec<String> = row
             .iter()
             .map(|cell| match cell {
-                DataType::String(s) => s.clone(),
-                DataType::Float(f) => {
+                Data::String(s) => s.clone(),
+                Data::Float(f) => {
                     // 如果是整数值，显示为整数
                     if *f == f.floor() && f.is_finite() {
                         format!("{}", *f as i64)
@@ -48,10 +48,10 @@ fn load_excel(path: &str) -> Result<(Vec<String>, Vec<Vec<String>>), String> {
                         format!("{}", f)
                     }
                 }
-                DataType::Int(i) => i.to_string(),
-                DataType::Bool(b) => b.to_string(),
-                DataType::DateTime(d) => d.to_string(),
-                DataType::Empty => String::new(),
+                Data::Int(i) => i.to_string(),
+                Data::Bool(b) => b.to_string(),
+                Data::DateTime(d) => d.to_string(),
+                Data::Empty => String::new(),
                 _ => String::new(),
             })
             .collect();

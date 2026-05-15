@@ -16,6 +16,6 @@ fn main() -> Result<(), eframe::Error> {
     eframe::run_native(
         "批量文件重命名工具",
         options,
-        Box::new(|_cc| Box::new(app::BatchRenameApp::default())),
+        Box::new(|_cc| Ok(Box::new(app::BatchRenameApp::default()))),
     )
 }

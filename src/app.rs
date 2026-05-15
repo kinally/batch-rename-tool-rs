@@ -26,7 +26,6 @@ const COLOR_BORDER: egui::Color32 = egui::Color32::from_rgb(0xde, 0xe2, 0xe6);
 
 // ─── 应用状态 ─────────────────────────────────────────────
 
-#[derive(Default)]
 pub struct BatchRenameApp {
     // ── 步骤导航 ──
     current_step: usize,
@@ -185,13 +184,11 @@ impl BatchRenameApp {
 
         let btn = if is_current {
             egui::Button::new(label).fill(COLOR_PRIMARY)
-        } else if can_go {
-            egui::Button::new(label)
         } else {
-            egui::Button::new(label).enabled(false)
+            egui::Button::new(label)
         };
 
-        if ui.add(btn).clicked() && can_go {
+        if ui.add_enabled(can_go, btn).clicked() && can_go {
             self.current_step = step;
             if step == 2 {
                 self.run_matching();
@@ -476,7 +473,7 @@ impl BatchRenameApp {
 
             ui.add_space(4.0);
 
-            let mut table = TableBuilder::new(ui)
+            let table = TableBuilder::new(ui)
                 .striped(true)
                 .resizable(true)
                 .cell_layout(egui::Layout::left_to_right(egui::Align::Center))
@@ -613,8 +610,9 @@ impl BatchRenameApp {
             .show(ui, |ui| {
                 ui.label("点击列名添加到模板：");
                 ui.add_space(4.0);
+                let headers = self.data_headers.clone();
                 ui.horizontal_wrapped(|ui| {
-                    for header in &self.data_headers {
+                    for header in &headers {
                         let label = format!("【{}】", header);
                         if ui.button(label).clicked() {
                             self.template_parts
@@ -622,6 +620,7 @@ impl BatchRenameApp {
                             self.update_preview();
                         }
                     }
+                });
                     ui.label("  ");
                     if ui.button("📅 时间戳").clicked() {
                         self.template_parts.push(TemplatePart::Timestamp);
@@ -766,7 +765,7 @@ impl BatchRenameApp {
                 ui.label("实时预览（原文件 → 新文件名）:");
                 ui.add_space(4.0);
 
-                let mut table = TableBuilder::new(ui)
+                let table = TableBuilder::new(ui)
                     .striped(true)
                     .resizable(true)
                     .cell_layout(egui::Layout::left_to_right(egui::Align::Center))
@@ -850,7 +849,7 @@ impl BatchRenameApp {
         if self.template_parts.is_empty() {
             // 即使没有模板，也显示文件列表
             for fname in &self.files {
-                let name = Path::new(fname)
+                let _name = Path::new(fname)
                     .file_name()
                     .and_then(|s| s.to_str())
                     .unwrap_or(fname)
@@ -885,7 +884,7 @@ impl BatchRenameApp {
                 self.preview_items
                     .push((fname.clone(), new_name, true));
             } else {
-                let name = Path::new(fname)
+                let _name = Path::new(fname)
                     .file_name()
                     .and_then(|s| s.to_str())
                     .unwrap_or(fname)

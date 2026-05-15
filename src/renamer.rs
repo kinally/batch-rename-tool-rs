@@ -2,8 +2,6 @@
 
 use rust_xlsxwriter::*;
 use std::collections::HashMap;
-use std::path::Path;
-
 /// 模板片段类型
 #[derive(Clone, Debug)]
 pub enum TemplatePart {
