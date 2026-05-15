@@ -38,7 +38,7 @@ fn setup_fonts(ctx: &egui::Context) {
     for path in &font_paths {
         if let Ok(data) = std::fs::read(path) {
             let name = format!("chinese_font_{}", path.rsplit('\\').next().unwrap_or("unknown"));
-            fonts.font_data.insert(name.clone(), egui::FontData::from_owned(data));
+            fonts.font_data.insert(name.clone(), std::sync::Arc::new(egui::FontData::from_owned(data)));
 
             // 在中英文模式下都用这个字体
             fonts
