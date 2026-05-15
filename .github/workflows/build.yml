@@ -1,0 +1,95 @@
+name: Build and Release
+
+on:
+  push:
+    branches: [ "main" ]
+    tags: [ "v*" ]
+  pull_request:
+    branches: [ "main" ]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        os: [windows-latest, ubuntu-latest, macos-latest]
+        include:
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            ext: .exe
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            ext: ""
+          - os: macos-latest
+            target: x86_64-apple-darwin
+            ext: ""
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Build release
+        run: cargo build --release
+
+      - name: Upload artifact (Windows)
+        uses: actions/upload-artifact@v4
+        if: matrix.os == 'windows-latest'
+        with:
+          name: batch-rename-tool-windows
+          path: target/release/batch-rename-tool.exe
+
+      - name: Upload artifact (Linux)
+        uses: actions/upload-artifact@v4
+        if: matrix.os == 'ubuntu-latest'
+        with:
+          name: batch-rename-tool-linux
+          path: target/release/batch-rename-tool
+
+      - name: Upload artifact (macOS)
+        uses: actions/upload-artifact@v4
+        if: matrix.os == 'macos-latest'
+        with:
+          name: batch-rename-tool-macos
+          path: target/release/batch-rename-tool
+
+  # 打 tag 时自动创建 Release
+  release:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            batch-rename-tool-windows/batch-rename-tool.exe
+            batch-rename-tool-linux/batch-rename-tool
+            batch-rename-tool-macos/batch-rename-tool
+          body: |
+            ## 批量文件重命名工具 v${{ github.ref_name }}
+
+            ### 使用说明
+            1. 下载对应系统的文件
+            2. 直接运行（Windows 双击 .exe）
+            3. 导入 Excel/CSV → 添加文件 → 构建规则 → 执行重命名
+
+            ### 下载
+            - Windows: `batch-rename-tool.exe`
+            - Linux: `batch-rename-tool`
+            - macOS: `batch-rename-tool`
