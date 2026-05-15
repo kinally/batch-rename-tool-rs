@@ -621,16 +621,15 @@ impl BatchRenameApp {
                         }
                     }
                 });
-                    ui.label("  ");
-                    if ui.button("📅 时间戳").clicked() {
-                        self.template_parts.push(TemplatePart::Timestamp);
-                        self.update_preview();
-                    }
-                    if ui.button("# 序号").clicked() {
-                        self.template_parts.push(TemplatePart::Sequence);
-                        self.update_preview();
-                    }
-                });
+                ui.label("  ");
+                if ui.button("📅 时间戳").clicked() {
+                    self.template_parts.push(TemplatePart::Timestamp);
+                    self.update_preview();
+                }
+                if ui.button("# 序号").clicked() {
+                    self.template_parts.push(TemplatePart::Sequence);
+                    self.update_preview();
+                }
             });
 
         ui.add_space(8.0);
